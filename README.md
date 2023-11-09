@@ -1,13 +1,15 @@
 ## ESP I2C Slave Driver
 
-The driver port from `arduino-esp32`, which supports I2C slave SCL stretching. 
+[![Build examples](https://github.com/leeebo/esp_i2c_slave/actions/workflows/build_examples.yml/badge.svg)](https://github.com/leeebo/esp_i2c_slave/actions/workflows/build_examples.yml)
+
+[esp_i2c_slave](./components/esp_i2c_slave) is a ESP-IDF component, which modified from [arduino-esp32/esp32-hal-i2c-slave.h](https://github.com/espressif/arduino-esp32/blob/master/cores/esp32/esp32-hal-i2c-slave.h), which supports I2C slave SCL stretching.
 
 ## Tested Target
 
 * ESP32-S2
 * ESP32-S3
 
-## Stretch test result
+## SCL Stretch Test Result
 
 1. Stretch SCL when Master read
 2. Read from RX FIFO
@@ -15,7 +17,7 @@ The driver port from `arduino-esp32`, which supports I2C slave SCL stretching.
 4. Slave Release SCL Stretch
 5. Master read back
 
-![](./stretch_test_result.png)
+![](./components/esp_i2c_slave/stretch_test_result.png)
 
 ## Example Log
 
