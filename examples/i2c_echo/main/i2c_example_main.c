@@ -56,6 +56,26 @@ static esp_err_t i2c_master_read_slave(i2c_port_t i2c_num, uint8_t command, uint
     return ret;
 }
 
+static esp_err_t i2c_master_write_read(i2c_port_t i2c_num, uint8_t *data_wr, size_t size_wr, uint8_t *data_rd, size_t size_rd)
+{
+    if (size_rd == 0) {
+        return ESP_OK;
+    }
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);                                                      //send start bit
+    i2c_master_write_byte(cmd, (ESP_SLAVE_ADDR << 1) | I2C_MASTER_WRITE, true); //send the bms address and write bit
+    i2c_master_write(cmd, data_wr, size_wr, true);                              //send the command to read
+    i2c_master_start(cmd);                                                      //send restart
+    i2c_master_write_byte(cmd, (ESP_SLAVE_ADDR << 1) | I2C_MASTER_READ, true);  //send the bms address and read bit
+    if(size_rd > 1) {
+        i2c_master_read(cmd, data_rd, size_rd - 1, I2C_MASTER_ACK);                //if more than one byte is to be read request one less than the number of bytes required
+    }
+    i2c_master_read(cmd, &data_rd[size_rd - 1], 1, I2C_MASTER_NACK);               //request the last byte and send a NACK
+    i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(i2c_num, cmd, portMAX_DELAY);
+    i2c_cmd_link_delete(cmd);
+    return ret;
+}
 
 /**
  * @brief i2c master initialization
@@ -90,7 +110,7 @@ static void i2c_slave_receive_cb(uint8_t num, uint8_t * data, size_t len, bool s
 {
     ESP_LOGI(TAG, "rcv_len: %d", len);
     if (len > 0) {
-        ESP_LOGI(TAG, "rcv: %02x ...", data[0]);
+        ESP_LOG_BUFFER_HEXDUMP(TAG, data, len, ESP_LOG_INFO);
     }
 }
 
@@ -105,13 +125,19 @@ static esp_err_t i2c_slave_init(void)
 
 static void i2c_master_task(void *arg)
 {
-    uint8_t data_rd[1] = {0};
+    uint8_t data_rd[4] = {0};
     uint8_t command = 0x00;
+    uint8_t data_wr[4] = {0};
     while (1) {
         ++command;
         i2c_master_read_slave(I2C_MASTER_NUM, command, data_rd, 1);
         ESP_LOGI(TAG, "Master Send Command: %02x, Return: %02x", command, data_rd[0]);
         vTaskDelay(200 / portTICK_PERIOD_MS);
+        for (int i = 0; i < 4; ++i) {
+            data_wr[i] = command + i;
+        }
+        i2c_master_write_read(I2C_MASTER_NUM, data_wr, 4, data_rd, 4);
+        ESP_LOGI(TAG, "Master Send Data: %02x %02x %02x %02x, Return: %02x %02x %02x %02x", data_wr[0], data_wr[1], data_wr[2], data_wr[3], data_rd[0], data_rd[1], data_rd[2], data_rd[3]);
     }
     vTaskDelete(NULL);
 }
