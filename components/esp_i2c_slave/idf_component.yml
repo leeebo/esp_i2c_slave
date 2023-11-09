@@ -1,0 +1,10 @@
+version: "0.0.1"
+description: Simple ESP I2C Slave Driver, Support SCL Stretch
+url: https://github.com/leeebo/esp_i2c_slave
+repository: https://github.com/leeebo/esp_i2c_slave
+issues: https://github.com/leeebo/esp_i2c_slave/issues
+targets:
+  - esp32s2
+  - esp32s3
+dependencies:
+  idf: ">=4.4"
