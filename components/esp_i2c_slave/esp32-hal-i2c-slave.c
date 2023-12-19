@@ -65,8 +65,9 @@ const char* TAG = "i2c_slave";
 
 //#define DEBUG_MODE
 #ifdef DEBUG_MODE
-#define DEBUG_IO 8
-#define DEBUG_IO2 9
+#define DEBUG_IO 8   //receive data
+#define DEBUG_IO2 9  //request data
+#define DEBUG_IO3 10 //scl stretching
 #endif
 
 enum {
@@ -239,7 +240,7 @@ esp_err_t i2cSlaveInit(uint8_t num, int sda, int scl, uint16_t slaveID, uint32_t
 
 #ifdef DEBUG_MODE
     gpio_config_t conf = {
-        .pin_bit_mask = 1LL << DEBUG_IO | 1LL << DEBUG_IO2,
+        .pin_bit_mask = 1LL << DEBUG_IO | 1LL << DEBUG_IO2 | 1LL << DEBUG_IO3,
         .mode = GPIO_MODE_OUTPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -248,6 +249,7 @@ esp_err_t i2cSlaveInit(uint8_t num, int sda, int scl, uint16_t slaveID, uint32_t
     gpio_config(&conf);
     gpio_set_level(DEBUG_IO, 0);
     gpio_set_level(DEBUG_IO2, 0);
+    gpio_set_level(DEBUG_IO3, 0);
 #endif
 
     if(num >= SOC_I2C_NUM){
@@ -689,7 +691,26 @@ static bool i2c_slave_handle_tx_fifo_empty(i2c_slave_struct_t * i2c)
             i2c_ll_write_txfifo(i2c->dev, (uint8_t*)&d, 1);
             moveCnt--;
         } else {
-            i2c_ll_slave_disable_tx_it(i2c->dev);
+            if(i2c->request_callback) {
+                // the data is not enough to fill the fifo, request more data
+#ifdef DEBUG_MODE
+                gpio_set_level(DEBUG_IO2, 1);
+#endif
+                i2c->request_callback(i2c->num, NULL, 0, i2c->arg);
+#ifdef DEBUG_MODE
+                gpio_set_level(DEBUG_IO2, 0);
+#endif
+            }
+            uint32_t txfifo_len = 0;
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+            i2c_ll_get_txfifo_len(i2c->dev, &txfifo_len);
+#else
+            txfifo_len = i2c_ll_get_txfifo_len(i2c->dev);
+#endif
+            if (SOC_I2C_FIFO_LEN == txfifo_len) {
+                // no more data to send, disable TX_EMPTY interrupt
+                i2c_ll_slave_disable_tx_it(i2c->dev);
+            }
             break;
         }
     }
@@ -788,6 +809,9 @@ static void i2c_slave_isr_handler(void* arg)
 
 #ifndef CONFIG_IDF_TARGET_ESP32
     if(activeInt & I2C_SLAVE_STRETCH_INT_ENA){ // STRETCH
+#ifdef DEBUG_MODE
+        gpio_set_level(DEBUG_IO3, 1);
+#endif
         i2c_stretch_cause_t cause = i2c_ll_stretch_cause(i2c->dev);
         if(cause == I2C_STRETCH_CAUSE_MASTER_READ){
             //on C3 RX data dissapears with repeated start, so we need to get it here
@@ -808,9 +832,15 @@ static void i2c_slave_isr_handler(void* arg)
         } else if(cause == I2C_STRETCH_CAUSE_TX_FIFO_EMPTY){
             pxHigherPriorityTaskWoken |= i2c_slave_handle_tx_fifo_empty(i2c);
             i2c_ll_stretch_clr(i2c->dev);
+#ifdef DEBUG_MODE
+            gpio_set_level(DEBUG_IO3, 0);
+#endif
         } else if(cause == I2C_STRETCH_CAUSE_RX_FIFO_FULL){
             pxHigherPriorityTaskWoken |= i2c_slave_handle_rx_fifo_full(i2c, rx_fifo_len);
             i2c_ll_stretch_clr(i2c->dev);
+#ifdef DEBUG_MODE
+            gpio_set_level(DEBUG_IO3, 0);
+#endif
         }
     }
 #endif
@@ -914,6 +944,9 @@ static void i2c_slave_task(void *pv_args)
                 #ifdef DEBUG_MODE
                     gpio_set_level(DEBUG_IO2, 1);
                 #endif
+                    // clear the history data in tx fifo
+                    i2c_ll_txfifo_rst(i2c->dev);
+                    xQueueReset(i2c->tx_queue);
                     i2c->request_callback(i2c->num, data, len, i2c->arg);
                 #ifdef DEBUG_MODE
                     gpio_set_level(DEBUG_IO2, 0);
@@ -921,6 +954,9 @@ static void i2c_slave_task(void *pv_args)
                     free(data);
                 }
                 i2c_ll_stretch_clr(i2c->dev);
+#ifdef DEBUG_MODE
+            gpio_set_level(DEBUG_IO3, 0);
+#endif
             }
         }
     }

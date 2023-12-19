@@ -35,6 +35,9 @@ static const char *TAG = "i2c-example";
 
 SemaphoreHandle_t print_mux = NULL;
 
+// special case for this example, test if master read more than slave first write
+#define READ_MORE_THAN_WRITE 0
+
 static esp_err_t i2c_master_read_slave(i2c_port_t i2c_num, uint8_t command, uint8_t *data_rd, size_t size)
 {
     if (size == 0) {
@@ -103,7 +106,15 @@ static void i2c_slave_request_cb(uint8_t num, uint8_t *cmd, uint8_t cmd_len, voi
 {
     // please not block or print in this callback function
     // because the SCL Stretching will be released if time is too long
-    i2cSlaveWrite(I2C_SLAVE_NUM, cmd, cmd_len, 0);
+    if (cmd_len > 0) {
+        // first write to master
+        i2cSlaveWrite(I2C_SLAVE_NUM, cmd, cmd_len, 0);
+    } else {
+        // cmd_len == 0 means master want more data from slave
+        // we just send one byte 0 each time to master here
+        uint8_t extra_data = 0x00;
+        i2cSlaveWrite(I2C_SLAVE_NUM, &extra_data, 1, 0);
+    }
 }
 
 static void i2c_slave_receive_cb(uint8_t num, uint8_t * data, size_t len, bool stop, void * arg)
@@ -125,7 +136,11 @@ static esp_err_t i2c_slave_init(void)
 
 static void i2c_master_task(void *arg)
 {
+#if READ_MORE_THAN_WRITE
+    uint8_t data_rd[6] = {0};
+#else
     uint8_t data_rd[4] = {0};
+#endif
     uint8_t command = 0x00;
     uint8_t data_wr[4] = {0};
     while (1) {
@@ -136,8 +151,11 @@ static void i2c_master_task(void *arg)
         for (int i = 0; i < 4; ++i) {
             data_wr[i] = command + i;
         }
-        i2c_master_write_read(I2C_MASTER_NUM, data_wr, 4, data_rd, 4);
+        i2c_master_write_read(I2C_MASTER_NUM, data_wr, 4, data_rd, sizeof(data_rd));
         ESP_LOGI(TAG, "Master Send Data: %02x %02x %02x %02x, Return: %02x %02x %02x %02x", data_wr[0], data_wr[1], data_wr[2], data_wr[3], data_rd[0], data_rd[1], data_rd[2], data_rd[3]);
+        if (sizeof(data_rd) >= 6) {
+            ESP_LOGI(TAG, "...: %02x %02x", data_rd[4], data_rd[5]);
+        }
     }
     vTaskDelete(NULL);
 }

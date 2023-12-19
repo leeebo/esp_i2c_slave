@@ -21,6 +21,13 @@
 
 ![](./components/esp_i2c_slave/stretch_test_result2.png)
 
+## Special SCL Stretch Case
+
+If the slave doesn't know how many bytes the master will read, the slave can try to write some bytes first, if the master reads more bytes than the slave writes, the SCL Stretch will be triggered again, and the `i2c_slave_request_cb` will be called again, then the slave can write more bytes.
+
+![](./components/esp_i2c_slave/stretch_special_case.png)
+
+
 ## Example Log
 
 ```
